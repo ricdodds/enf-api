@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    command: gunicorn -w 4 -b 0.0.0.0:5000 --log-level info --access-logfile - make_app:flask_app
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - BUCKET_NAME=
+      - AWS_ACCESS_KEY_ID=
+      - AWS_SECRET_ACCESS_KEY=
+    ports:
+      - "5000:5000"
+    depends_on:
+      - redis
+      - celery_worker
+
+  celery_worker:
+    build: .
+    command: celery -A make_app:celery_app worker --loglevel=info
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - BUCKET_NAME=
+      - AWS_ACCESS_KEY_ID=
+      - AWS_SECRET_ACCESS_KEY=
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
