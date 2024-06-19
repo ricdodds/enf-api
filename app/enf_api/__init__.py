@@ -1,16 +1,16 @@
 import os
+import logging
 
-from celery import Celery
-from celery import Task
 from flask import Flask
+from celery import Celery, Task
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config.from_mapping(
         CELERY=dict(
-            broker_url=os.getenv('CELERY_BROKER_URL', 'redis://localhost'),
-            result_backend=os.getenv('CELERY_BROKER_URL', 'redis://localhost'),
+            broker_url=os.getenv('REDIS_URL', 'redis://localhost'),
+            result_backend=os.getenv('REDIS_URL', 'redis://localhost'),
             task_ignore_result=True,
         ),
     )
@@ -19,12 +19,16 @@ def create_app() -> Flask:
 
     @app.route("/")
     def index() -> str:
-        return "Bellingcat ENF API"
+        return "ENF API"
 
-    from . import views, data
+    from . import match, datasets
 
-    app.register_blueprint(views.bp)
-    app.register_blueprint(data.dbp)
+    app.register_blueprint(match.bp)
+    app.register_blueprint(datasets.bp)
+
+    gunicorn_logger = logging.getLogger('gunicorn.error')
+    app.logger.handlers = gunicorn_logger.handlers
+    app.logger.setLevel(gunicorn_logger.level)
 
     return app
 

@@ -179,28 +179,33 @@ aws.iam.RolePolicyAttachment(
     policy_arn="arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 )
 
+containers_env = [
+    {"name": "REDIS_URL", "value": redis_url},
+    {"name": "BUCKET_NAME", "value": bucket.bucket},
+]
+
 flask_app_container = {
     "name": "flask-app",
     "image": enf_image.image_name,
-    "command": ["gunicorn", "--workers", "2", "--threads", "4", "--bind", "0.0.0.0:80", "make_celery:flask_app"],
+    "command": ["gunicorn", "--workers", "2", "--threads", "4", "--bind", "0.0.0.0:80", "--log-level", "info", "--access-logfile", "-", "make_app:flask_app"],
     "essential": True,
     "portMappings": [{
         "containerPort": 80
     }],
     "logConfiguration": log_configuration,
-    "environment": [
-        {"name": "CELERY_BROKER_URL", "value": redis_url},
-        {"name": "S3_BUCKET_NAME", "value": bucket.bucket},
-    ]
+    "environment": containers_env
 }
+
+task_cpu = f"{4 * 1024}"
+task_memory = f"{8 * 1024}"
 
 flask_task_definition = aws.ecs.TaskDefinition(
     "flask-app-task",
     family="flask-app-task",
     network_mode="awsvpc",
     requires_compatibilities=["FARGATE"],
-    cpu=f"{4 * 1024}",
-    memory=f"{8 * 1024}",
+    cpu=task_cpu,
+    memory=task_memory,
     execution_role_arn=execution_role.arn,
     task_role_arn=task_role.arn,
     container_definitions=pulumi.Output.all(flask_app_container).apply(
@@ -229,13 +234,10 @@ flask_service = aws.ecs.Service(
 celery_worker_container = {
     "name": "celery-worker",
     "image": enf_image.image_name,
-    "command": ["celery", "-A", "make_celery", "worker", "--loglevel=info", "--concurrency=2"],
+    "command": ["celery", "-A", "make_app:celery_app", "worker", "--loglevel=info", "--concurrency=2"],
     "essential": True,
     "logConfiguration": log_configuration,
-    "environment": [
-        {"name": "CELERY_BROKER_URL", "value": redis_url},
-        {"name": "S3_BUCKET_NAME", "value": bucket.bucket},
-    ]
+    "environment": containers_env
 }
 
 celery_task_definition = aws.ecs.TaskDefinition(
@@ -243,8 +245,8 @@ celery_task_definition = aws.ecs.TaskDefinition(
     family="celery-worker-task",
     network_mode="awsvpc",
     requires_compatibilities=["FARGATE"],
-    cpu=f"{4 * 1024}",
-    memory=f"{8 * 1024}",
+    cpu=task_cpu,
+    memory=task_memory,
     execution_role_arn=execution_role.arn,
     task_role_arn=task_role.arn,
     container_definitions=pulumi.Output.all(celery_worker_container).apply(

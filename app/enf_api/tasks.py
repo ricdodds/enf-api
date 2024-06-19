@@ -1,20 +1,20 @@
-import os
 import io
 
-import boto3
 import pandas as pd
 from celery import shared_task
 from scipy.io import wavfile
+from enf import signal_processing, match
 
-from enf import eso, signal_processing, match
+from .s3 import download_file, delete_file
+from .datasets import get_dataset
 
 
 @shared_task(ignore_result=False)
-def match_file(filename, db_name, year, month):
+def match_file(filename, dataset_name, year, month):
     try:
-        db = get_db(db_name)
+        dataset = get_dataset(dataset_name)
 
-        grid_times, grid_enf = db.frequency_data(year, month)
+        grid_times, grid_enf = dataset.frequency_data(year, month)
 
         query_file = download_file(filename)
         query_fs, query_data = wavfile.read(io.BytesIO(query_file))
@@ -24,7 +24,7 @@ def match_file(filename, db_name, year, month):
 
         harmonic_n = 2
         new_fs = 300
-        grid_frequency = db.nominal_freq
+        grid_frequency = dataset.nominal_freq
 
         low_cut = harmonic_n * grid_frequency - (grid_frequency - grid_enf.min())
         high_cut = harmonic_n * grid_frequency + (grid_enf.max() - grid_frequency)
@@ -43,30 +43,3 @@ def match_file(filename, db_name, year, month):
 
     finally:
         delete_file(filename)
-
-
-def delete_file(filename):
-    s3 = boto3.client('s3')
-    bucket_name = os.getenv("S3_BUCKET_NAME")
-
-    s3.delete_object(Bucket=bucket_name, Key=filename)
-
-
-def download_file(filename):
-    s3 = boto3.client('s3')
-    bucket_name = os.getenv("S3_BUCKET_NAME")
-
-    file_obj = io.BytesIO()
-    s3.download_fileobj(bucket_name, filename, file_obj)
-    file_obj.seek(0)
-
-    return file_obj.read()
-
-
-def get_db(db_name):
-    dbs = {'eso': eso}
-
-    if db_name not in dbs:
-        raise ValueError(f"Database '{db_name}' not found.")
-
-    return dbs[db_name]
