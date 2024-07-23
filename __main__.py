@@ -1,7 +1,12 @@
 import json
 import pulumi
+from pulumi import Config
 import pulumi_aws as aws
 import pulumi_docker as docker
+
+config = Config()
+db_password = config.require_secret('dbPassword')
+gridradar_api_token = config.require_secret('gridradarApiToken')
 
 vpc = aws.ec2.get_vpc(default=True)
 subnets = aws.ec2.get_subnets(
@@ -45,6 +50,12 @@ security_group = aws.ec2.SecurityGroup(
             from_port=6379,
             to_port=6379,
             cidr_blocks=["0.0.0.0/0"]
+        ),
+        aws.ec2.SecurityGroupIngressArgs(
+            protocol="tcp",
+            from_port=5432,
+            to_port=5432,
+            cidr_blocks=["0.0.0.0/0"]
         )
     ],
     egress=[
@@ -72,6 +83,27 @@ cache_cluster = aws.elasticache.Cluster(
     port=6379,
     security_group_ids=[security_group.id]
 )
+
+db_subnet_group = aws.rds.SubnetGroup(
+    "db-subnet-group",
+    subnet_ids=subnets.ids
+)
+
+db_instance = aws.rds.Instance(
+    "postgres-db",
+    engine="postgres",
+    instance_class="db.t3.micro",
+    allocated_storage=20,
+    db_name="frequency_db",
+    username="postgres",
+    password="password",
+    vpc_security_group_ids=[security_group.id],
+    db_subnet_group_name=db_subnet_group.name,
+    skip_final_snapshot=True,
+    publicly_accessible=True
+)
+
+db_endpoint = db_instance.endpoint.apply(lambda endpoint: f"postgresql+psycopg2://postgres:password@{endpoint}/frequency_db")
 
 cluster = aws.ecs.Cluster("flask-celery-cluster")
 
@@ -182,6 +214,9 @@ aws.iam.RolePolicyAttachment(
 containers_env = [
     {"name": "REDIS_URL", "value": redis_url},
     {"name": "BUCKET_NAME", "value": bucket.bucket},
+    {"name": "POSTGRES_URL", "value": db_endpoint},
+    {"name": "GRIDRADAR_API_TOKEN", "value": gridradar_api_token},
+    {"name": "FORCE_SERVICE_RESTART", "value": "true"},
 ]
 
 flask_app_container = {
@@ -196,7 +231,7 @@ flask_app_container = {
     "environment": containers_env
 }
 
-task_cpu = f"{4 * 1024}"
+task_cpu = f"{2 * 1024}"
 task_memory = f"{8 * 1024}"
 
 flask_task_definition = aws.ecs.TaskDefinition(

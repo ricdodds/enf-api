@@ -18,11 +18,11 @@ ALLOWED_EXTENSIONS = {'wav'}
 
 @bp.post("")
 def match():
-    db_name = request.args.get('db')
-    year = request.args.get('year')
-    month = request.args.get('month')
+    db_name = request.args.get("db")
+    from_ts = request.args.get("from")
+    to_ts = request.args.get("to") or from_ts
 
-    if not db_name or not year or not month:
+    if not db_name or not from_ts:
         return jsonify({"error": "Missing required query parameters"}), 400
 
     if 'file' not in request.files:
@@ -38,7 +38,7 @@ def match():
         unique_filename = f"{uuid.uuid4()}_{filename}"
 
         upload_file(file, unique_filename)
-        task = match_file.delay(unique_filename, db_name, year, month)
+        task = match_file.delay(unique_filename, db_name, from_ts, to_ts)
 
         logger.info(f"Task enf_api.tasks.match_file[{task.id}] submitted")
 
